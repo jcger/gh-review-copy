@@ -48,3 +48,10 @@ I reviewed your code and have the following comments. Please address them.
 ## Privacy
 
 Runs only on `github.com`. Uses your existing browser session to read pending review data from the page — no personal access token, and it does not open comment modals just to copy.
+
+Full policy: [PRIVACY.md](./PRIVACY.md)  
+Chrome Web Store privacy-policy URL (after push): `https://github.com/jcger/gh-review-copy/blob/main/PRIVACY.md`
+
+## License
+
+[MIT](./LICENSE)
