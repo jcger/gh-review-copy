@@ -37,6 +37,10 @@ path/to/other.ts:10-12 Rename this
 
 Works on `/files` and `/changes` (and soft-navigated PR pages).
 
+## Demo PR
+
+This is for the screenshot
+
 ## Options
 
 Extension options → set the clipboard **prefix** (synced via `chrome.storage.sync`). Default:
