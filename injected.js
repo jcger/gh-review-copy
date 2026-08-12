@@ -28,6 +28,23 @@
     return typeof Node !== "undefined" && value instanceof Node;
   }
 
+  // Dialog comment objects have body/databaseId but not path:line. Path/line and
+  // the numeric thread id live on the parent thread (positioning / subject / id).
+  function withThreadContext(entry, thread) {
+    if (!entry || typeof entry !== "object") return entry;
+    const pos = thread?.positioning || thread?.subject || null;
+    const threadId =
+      entry.threadId != null
+        ? String(entry.threadId)
+        : thread?.id != null
+          ? String(thread.id)
+          : null;
+    const path = entry.path || thread?.path || pos?.path || null;
+    const line = entry.endLine ?? entry.line ?? pos?.endLine ?? pos?.line ?? null;
+    const startLine = entry.startLine ?? pos?.startLine ?? null;
+    return { ...entry, threadId, path, line, endLine: line, startLine };
+  }
+
   function considerPendingComment(candidate, byKey) {
     if (!candidate || typeof candidate !== "object") return;
 
@@ -36,11 +53,15 @@
     if (!body) return;
 
     const databaseId = candidate.databaseId ?? null;
-    const threadId =
+    let threadId =
       candidate.threadId != null ? String(candidate.threadId) : null;
-    // Pending review threads use PRRC_ ids; require that or a databaseId.
+    // Comment node ids are PRRC_*; those are not positioning thread ids.
+    if (threadId && threadId.startsWith("PRRC_")) threadId = null;
     if (databaseId == null && !threadId) return;
-    if (threadId && !threadId.startsWith("PRRC_") && databaseId == null) return;
+
+    const path = candidate.path ? cleanPath(candidate.path) : null;
+    const line = candidate.endLine ?? candidate.line ?? null;
+    const startLine = candidate.startLine ?? null;
 
     let existing = null;
     for (const comment of byKey.values()) {
@@ -54,18 +75,18 @@
     }
 
     if (existing) {
-      if (!existing.threadId && threadId) existing.threadId = threadId;
+      const weakThreadId =
+        existing.threadId == null ||
+        (existing.databaseId != null &&
+          existing.threadId === String(existing.databaseId));
+      if (threadId && weakThreadId) existing.threadId = threadId;
       if (existing.databaseId == null && databaseId != null) {
         existing.databaseId = databaseId;
       }
-      if (!existing.path && candidate.path) {
-        existing.path = cleanPath(candidate.path);
-      }
-      if (existing.line == null) {
-        existing.line = candidate.endLine ?? candidate.line ?? null;
-      }
-      if (existing.startLine == null) {
-        existing.startLine = candidate.startLine ?? null;
+      if (!existing.path && path) existing.path = path;
+      if (existing.line == null && line != null) existing.line = line;
+      if (existing.startLine == null && startLine != null) {
+        existing.startLine = startLine;
       }
       return;
     }
@@ -75,9 +96,9 @@
       threadId: threadId || String(databaseId),
       databaseId,
       body,
-      path: candidate.path ? cleanPath(candidate.path) : null,
-      line: candidate.endLine ?? candidate.line ?? null,
-      startLine: candidate.startLine ?? null,
+      path,
+      line,
+      startLine,
     });
   }
 
@@ -86,12 +107,19 @@
     if (isDomNode(value) || seen.has(value)) return;
     seen.add(value);
 
-    if (Array.isArray(value.comments)) {
-      for (const entry of value.comments) considerPendingComment(entry, byKey);
-    }
     if (Array.isArray(value.commentsData?.comments)) {
       for (const entry of value.commentsData.comments) {
-        considerPendingComment(entry, byKey);
+        considerPendingComment(withThreadContext(entry, value), byKey);
+      }
+    }
+    if (Array.isArray(value.comments)) {
+      const threadLike = value.positioning || value.subject || value.commentsData;
+      for (const entry of value.comments) {
+        if (!(entry?.body && entry?.databaseId)) continue;
+        considerPendingComment(
+          threadLike ? withThreadContext(entry, value) : entry,
+          byKey
+        );
       }
     }
     if (Array.isArray(value.viewerPendingReview?.comments)) {
@@ -105,7 +133,10 @@
         if (!Array.isArray(nested)) continue;
         for (const entry of nested) {
           considerPendingComment(
-            entry.threadId != null ? entry : { ...entry, threadId },
+            withThreadContext(
+              entry.threadId != null ? entry : { ...entry, threadId },
+              thread
+            ),
             byKey
           );
         }
