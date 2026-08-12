@@ -13,9 +13,154 @@
     );
   }
 
+  function findReviewDialog() {
+    return [...document.querySelectorAll('[role="dialog"]')].find((dialog) =>
+      /Finish your review/i.test(dialog.textContent || "")
+    );
+  }
+
   function getReactFiber(el) {
     const key = Object.keys(el).find((k) => k.startsWith("__reactFiber$"));
     return key ? el[key] : null;
+  }
+
+  function isDomNode(value) {
+    return typeof Node !== "undefined" && value instanceof Node;
+  }
+
+  function considerPendingComment(candidate, byKey) {
+    if (!candidate || typeof candidate !== "object") return;
+
+    const body =
+      typeof candidate.body === "string" ? candidate.body.replace(/\s+$/g, "") : "";
+    if (!body) return;
+
+    const databaseId = candidate.databaseId ?? null;
+    const threadId =
+      candidate.threadId != null ? String(candidate.threadId) : null;
+    // Pending review threads use PRRC_ ids; require that or a databaseId.
+    if (databaseId == null && !threadId) return;
+    if (threadId && !threadId.startsWith("PRRC_") && databaseId == null) return;
+
+    let existing = null;
+    for (const comment of byKey.values()) {
+      if (
+        (databaseId != null && comment.databaseId === databaseId) ||
+        (threadId && comment.threadId === threadId)
+      ) {
+        existing = comment;
+        break;
+      }
+    }
+
+    if (existing) {
+      if (!existing.threadId && threadId) existing.threadId = threadId;
+      if (existing.databaseId == null && databaseId != null) {
+        existing.databaseId = databaseId;
+      }
+      if (!existing.path && candidate.path) {
+        existing.path = cleanPath(candidate.path);
+      }
+      if (existing.line == null) {
+        existing.line = candidate.endLine ?? candidate.line ?? null;
+      }
+      if (existing.startLine == null) {
+        existing.startLine = candidate.startLine ?? null;
+      }
+      return;
+    }
+
+    const key = databaseId != null ? `d:${databaseId}` : `t:${threadId}`;
+    byKey.set(key, {
+      threadId: threadId || String(databaseId),
+      databaseId,
+      body,
+      path: candidate.path ? cleanPath(candidate.path) : null,
+      line: candidate.endLine ?? candidate.line ?? null,
+      startLine: candidate.startLine ?? null,
+    });
+  }
+
+  function harvestPendingFromValue(value, byKey, depth, seen) {
+    if (!value || typeof value !== "object" || depth > 6) return;
+    if (isDomNode(value) || seen.has(value)) return;
+    seen.add(value);
+
+    if (Array.isArray(value.comments)) {
+      for (const entry of value.comments) considerPendingComment(entry, byKey);
+    }
+    if (Array.isArray(value.commentsData?.comments)) {
+      for (const entry of value.commentsData.comments) {
+        considerPendingComment(entry, byKey);
+      }
+    }
+    if (Array.isArray(value.viewerPendingReview?.comments)) {
+      for (const entry of value.viewerPendingReview.comments) {
+        considerPendingComment(entry, byKey);
+      }
+    }
+    if (value.markers?.threads && typeof value.markers.threads === "object") {
+      for (const [threadId, thread] of Object.entries(value.markers.threads)) {
+        const nested = thread?.commentsData?.comments;
+        if (!Array.isArray(nested)) continue;
+        for (const entry of nested) {
+          considerPendingComment(
+            entry.threadId != null ? entry : { ...entry, threadId },
+            byKey
+          );
+        }
+      }
+    }
+
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        harvestPendingFromValue(entry, byKey, depth + 1, seen);
+      }
+      return;
+    }
+
+    for (const key of Object.keys(value)) {
+      if (
+        key === "stateNode" ||
+        key === "ref" ||
+        key === "_owner" ||
+        key === "children"
+      ) {
+        continue;
+      }
+      try {
+        harvestPendingFromValue(value[key], byKey, depth + 1, seen);
+      } catch {
+        // Ignore getter / revoked-proxy failures in fiber graphs.
+      }
+    }
+  }
+
+  // Primary source: pending comments live in the Finish-your-review dialog
+  // tree on first open, before Submit-button ancestors are hydrated.
+  function readPendingFromDialog() {
+    const dialog = findReviewDialog();
+    if (!dialog) return [];
+    const root = getReactFiber(dialog);
+    if (!root) return [];
+
+    const byKey = new Map();
+    const seenFiber = new Set();
+    const queue = [root];
+
+    while (queue.length) {
+      const fiber = queue.shift();
+      if (!fiber || seenFiber.has(fiber)) continue;
+      seenFiber.add(fiber);
+
+      harvestPendingFromValue(fiber.memoizedProps, byKey, 0, new Set());
+      harvestPendingFromValue(fiber.memoizedState, byKey, 0, new Set());
+
+      if (fiber.child) queue.push(fiber.child);
+      if (fiber.sibling) queue.push(fiber.sibling);
+    }
+
+    return [...byKey.values()].filter((c) => c.threadId);
   }
 
   function readPendingFromReact(submitBtn) {
@@ -23,14 +168,19 @@
     let markers = null;
     let viewerPendingReview = null;
 
+    // Closest fiber wins; prefer live props over stale initData.
     for (let i = 0; i < 80 && fiber; i++) {
       const props = fiber.memoizedProps || {};
-      if (props.markers) markers = props.markers;
-      if (props.viewerPendingReview) viewerPendingReview = props.viewerPendingReview;
-      if (props.initData?.markers) markers = props.initData.markers;
-      if (props.initData?.viewerPendingReview) {
-        viewerPendingReview = props.initData.viewerPendingReview;
+      if (!markers) {
+        markers = props.markers || props.initData?.markers || null;
       }
+      if (!viewerPendingReview) {
+        viewerPendingReview =
+          props.viewerPendingReview ||
+          props.initData?.viewerPendingReview ||
+          null;
+      }
+      if (markers && viewerPendingReview) break;
       fiber = fiber.return;
     }
 
@@ -128,11 +278,14 @@
   }
 
   async function collectComments(route) {
-    const submitBtn = findSubmitReviewButton();
-    if (!submitBtn) {
-      throw new Error("Submit review button not found");
+    let comments = readPendingFromDialog();
+    if (!comments.length) {
+      const submitBtn = findSubmitReviewButton();
+      if (!submitBtn) {
+        throw new Error("Submit review button not found");
+      }
+      comments = readPendingFromReact(submitBtn);
     }
-    const comments = readPendingFromReact(submitBtn);
     if (!comments.length) return comments;
 
     const threads = await fetchPositioning(
