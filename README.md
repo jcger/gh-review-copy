@@ -11,7 +11,7 @@ Opens the **Finish your review** modal on a PR’s Files / Changes page, then cl
 ```
 https://github.com/owner/repo/pull/123
 
-I reviewed your code and have the following comments. Please address them.
+For each comment below: don't implement yet. Restate the comment, give brief context for the line(s), and if there's a decision, propose a recommended action with risk level when relevant. Stop after each topic and wait for me before continuing.
 
 path/to/file.ts:42 Do this instead
 path/to/other.ts:10-12 Rename this
@@ -45,7 +45,7 @@ Works on `/files` and `/changes` (and soft-navigated PR pages).
 The PR URL is always the first line. Extension options → set the clipboard **prefix** that follows it (synced via `chrome.storage.sync`). Default:
 
 ```
-I reviewed your code and have the following comments. Please address them.
+For each comment below: don't implement yet. Restate the comment, give brief context for the line(s), and if there's a decision, propose a recommended action with risk level when relevant. Stop after each topic and wait for me before continuing.
 ```
 
 ## Privacy

@@ -1,5 +1,5 @@
 const DEFAULT_PREFIX =
-  "I reviewed your code and have the following comments. Please address them.";
+  "For each comment below: don't implement yet. Restate the comment, give brief context for the line(s), and if there's a decision, propose a recommended action with risk level when relevant. Stop after each topic and wait for me before continuing.";
 
 const prefixEl = document.getElementById("prefix");
 const statusEl = document.getElementById("status");
