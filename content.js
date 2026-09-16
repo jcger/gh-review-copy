@@ -128,14 +128,20 @@
     return `${path}:?`;
   }
 
-  function formatClipboard(prefix, comments) {
+  function prUrlFromRoute(route) {
+    return `${location.origin}/${route.owner}/${route.repo}/pull/${route.number}`;
+  }
+
+  function formatClipboard(prefix, comments, prUrl) {
     const lines = comments.map((c) => {
       const body = String(c.body || "").replace(/\s+/g, " ").trim();
       return `${formatLocation(c)} ${body}`.trimEnd();
     });
-    const body = lines.join("\n");
-    if (!prefix) return body;
-    return body ? `${prefix}\n\n${body}` : prefix;
+    const parts = [];
+    if (prUrl) parts.push(prUrl);
+    if (prefix) parts.push(prefix);
+    if (lines.length) parts.push(lines.join("\n"));
+    return parts.join("\n\n");
   }
 
   async function getPrefix() {
@@ -211,7 +217,7 @@
       }
 
       const prefix = await getPrefix();
-      await copyText(formatClipboard(prefix, comments));
+      await copyText(formatClipboard(prefix, comments, prUrlFromRoute(route)));
       setButtonState(btn, "check", `Copied ${comments.length}`);
     } catch (err) {
       console.warn("[GH Review Copy]", err);

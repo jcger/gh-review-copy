@@ -9,12 +9,15 @@ The goal is a low-friction loop: leave inline comments on a PR, copy them in one
 Opens the **Finish your review** modal on a PR’s Files / Changes page, then click **Copy comments**. Clipboard output looks like:
 
 ```
+https://github.com/owner/repo/pull/123
+
 I reviewed your code and have the following comments. Please address them.
 
 path/to/file.ts:42 Do this instead
 path/to/other.ts:10-12 Rename this
 ```
 
+- First line is the PR URL (`https://github.com/owner/repo/pull/123`)
 - Pending review comments only (not published review threads)
 - One line per comment: `path:line` (or `path:start-end` when GitHub has a range)
 - Multi-line comment bodies are flattened to a single line
@@ -39,7 +42,7 @@ Works on `/files` and `/changes` (and soft-navigated PR pages).
 
 ## Options
 
-Extension options → set the clipboard **prefix** (synced via `chrome.storage.sync`). Default:
+The PR URL is always the first line. Extension options → set the clipboard **prefix** that follows it (synced via `chrome.storage.sync`). Default:
 
 ```
 I reviewed your code and have the following comments. Please address them.
